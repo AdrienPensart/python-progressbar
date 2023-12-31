@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import collections
 import contextlib
 import datetime
 import io
@@ -8,32 +9,200 @@ import logging
 import os
 import re
 import sys
+import typing
 from types import TracebackType
-from typing import Iterable, Iterator
+from typing import cast, Any, Callable, Iterable, Iterator, Generic, Type, TypeVar, SupportsIndex, Union
 
-from python_utils import types
-from python_utils.converters import scale_1024
-from python_utils.terminal import get_terminal_size
-from python_utils.time import epoch, format_time, timedelta_to_seconds
+from progressbar import base, converters, env, terminal
 
-from progressbar import base, env, terminal
-
-if types.TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from .bar import ProgressBar, ProgressBarMixinBase
 
-# Make sure these are available for import
-assert timedelta_to_seconds is not None
-assert get_terminal_size is not None
-assert format_time is not None
-assert scale_1024 is not None
-assert epoch is not None
+T = TypeVar('T')
+StringT = TypeVar('StringT', bound=converters.StringTypes)
+epoch = datetime.datetime(year=1970, month=1, day=1)
+timestamp_type = datetime.timedelta | datetime.date | datetime.datetime | str | int | float | None
 
-StringT = types.TypeVar('StringT', bound=types.StringTypes)
+
+# Type hinting `collections.deque` does not work consistently between Python
+# runtime, mypy and pyright currently so we have to ignore the errors
+class SliceableDeque(Generic[T], collections.deque):  # type: ignore
+    @typing.overload
+    def __getitem__(self, index: SupportsIndex) -> T:
+        ...
+
+    @typing.overload
+    def __getitem__(self, index: slice) -> 'SliceableDeque[T]':
+        ...
+
+    def __getitem__(
+        self, index: SupportsIndex | slice
+    ) -> Union[T, 'SliceableDeque[T]']:
+        '''
+        Return the item or slice at the given index.
+
+        >>> d = SliceableDeque[int]([1, 2, 3, 4, 5])
+        >>> d[1:4]
+        SliceableDeque([2, 3, 4])
+
+        >>> d = SliceableDeque[str](['a', 'b', 'c'])
+        >>> d[-2:]
+        SliceableDeque(['b', 'c'])
+
+        '''
+        if isinstance(index, slice):
+            start, stop, step = index.indices(len(self))
+            return self.__class__(self[i] for i in range(start, stop, step))
+        else:
+            return cast(T, super().__getitem__(index))
+
+    def __eq__(self, other: Any) -> bool:
+        '''
+        Allow for comparison with a list or tuple
+
+        >>> d = SliceableDeque[int]([1, 2])
+        >>> d == (1, 2)
+        True
+
+        >>> d = SliceableDeque[int]([1, 2])
+        >>> d == {1, 2}
+        True
+
+        '''
+        if isinstance(other, list):
+            return list(self) == other
+        elif isinstance(other, tuple):
+            return tuple(self) == other
+        elif isinstance(other, set):
+            return set(self) == other
+        else:
+            return super().__eq__(other)
+
+    def pop(self, index: int = -1) -> T:
+        '''
+        We need to allow for an index but a deque only allows the removal of
+        the first or last item.
+
+        >>> d = SliceableDeque[int]([1, 2, 3])
+        >>> d.pop(0)
+        1
+
+        >>> d = SliceableDeque[int]([1, 2, 3])
+        >>> d.pop(-1)
+        3
+
+        >>> d = SliceableDeque[int]([1, 2, 3])
+        >>> d.pop(1)
+        Traceback (most recent call last):
+        ...
+        IndexError: Only index 0 and the last index (`N-1` or `-1`) are supported
+
+        '''
+        if index == 0:
+            return cast(T, super().popleft())
+        if index in {-1, len(self) - 1}:
+            return cast(T, super().pop())
+        raise IndexError(
+            'Only index 0 and the last index (`N-1` or `-1`) '
+            'are supported'
+        )
+
+
+def timedelta_to_seconds(delta: datetime.timedelta) -> converters.Number:
+    '''Convert a timedelta to seconds with the microseconds as fraction
+
+    Note that this method has become largely obsolete with the
+    `timedelta.total_seconds()` method introduced in Python 2.7.
+
+    >>> from datetime import timedelta
+    >>> '%d' % timedelta_to_seconds(timedelta(days=1))
+    '86400'
+    >>> '%d' % timedelta_to_seconds(timedelta(seconds=1))
+    '1'
+    >>> '%.6f' % timedelta_to_seconds(timedelta(seconds=1, microseconds=1))
+    '1.000001'
+    >>> '%.6f' % timedelta_to_seconds(timedelta(microseconds=1))
+    '0.000001'
+    '''
+    # Only convert to float if needed
+    if delta.microseconds:
+        total = delta.microseconds * 1e-6
+    else:
+        total = 0
+    total += delta.seconds
+    total += delta.days * 60 * 60 * 24
+    return total
+
+
+def format_time(
+    timestamp: timestamp_type,
+    precision: datetime.timedelta = datetime.timedelta(seconds=1),
+) -> str:
+    '''Formats timedelta/datetime/seconds
+
+    >>> format_time('1')
+    '0:00:01'
+    >>> format_time(1.234)
+    '0:00:01'
+    >>> format_time(1)
+    '0:00:01'
+    >>> format_time(datetime.datetime(2000, 1, 2, 3, 4, 5, 6))
+    '2000-01-02 03:04:05'
+    >>> format_time(datetime.date(2000, 1, 2))
+    '2000-01-02'
+    >>> format_time(datetime.timedelta(seconds=3661))
+    '1:01:01'
+    >>> format_time(None)
+    '--:--:--'
+    >>> format_time(format_time)  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+        ...
+    TypeError: Unknown type ...
+
+    '''
+    precision_seconds = precision.total_seconds()
+
+    if isinstance(timestamp, str):
+        timestamp = float(timestamp)
+
+    if isinstance(timestamp, (int, float)):
+        try:
+            timestamp = datetime.timedelta(seconds=timestamp)
+        except OverflowError:  # pragma: no cover
+            timestamp = None
+
+    if isinstance(timestamp, datetime.timedelta):
+        seconds = timestamp.total_seconds()
+        # Truncate the number to the given precision
+        seconds = seconds - (seconds % precision_seconds)
+
+        return str(datetime.timedelta(seconds=seconds))
+    elif isinstance(timestamp, datetime.datetime):  # pragma: no cover
+        # Python 2 doesn't have the timestamp method
+        if hasattr(timestamp, 'timestamp'):
+            seconds = timestamp.timestamp()
+        else:
+            seconds = timedelta_to_seconds(timestamp - epoch)
+
+        # Truncate the number to the given precision
+        seconds = seconds - (seconds % precision_seconds)
+
+        try:  # pragma: no cover
+            dt = datetime.datetime.fromtimestamp(seconds)
+        except ValueError:  # pragma: no cover
+            dt = datetime.datetime.max
+        return str(dt)
+    elif isinstance(timestamp, datetime.date):
+        return str(timestamp)
+    elif timestamp is None:
+        return '--:--:--'
+    else:
+        raise TypeError('Unknown type %s: %r' % (type(timestamp), timestamp))
 
 
 def deltas_to_seconds(
     *deltas,
-    default: types.Optional[types.Type[ValueError]] = ValueError,
+    default: Type[ValueError] | None = ValueError,
 ) -> int | float | None:
     '''
     Convert timedeltas and seconds as int to seconds as float while coalescing.
@@ -100,7 +269,7 @@ def no_color(value: StringT) -> StringT:
         raise TypeError('`value` must be a string or bytes, got %r' % value)
 
 
-def len_color(value: types.StringTypes) -> int:
+def len_color(value: str | bytes) -> int:
     '''
     Return the length of `value` without ANSI escape codes.
 
@@ -125,7 +294,7 @@ class WrappingIO:
         self,
         target: base.IO,
         capturing: bool = False,
-        listeners: types.Optional[types.Set[ProgressBar]] = None,
+        listeners: set[ProgressBar] | None = None,
     ) -> None:
         self.buffer = io.StringIO()
         self.target = target
@@ -196,7 +365,7 @@ class WrappingIO:
     def tell(self) -> int:
         return self.target.tell()
 
-    def truncate(self, size: types.Optional[int] = None) -> int:
+    def truncate(self, size: int | None = None) -> int:
         return self.target.truncate(size)
 
     def writable(self) -> bool:
@@ -229,9 +398,9 @@ class StreamWrapper:
 
     stdout: base.TextIO | WrappingIO
     stderr: base.TextIO | WrappingIO
-    original_excepthook: types.Callable[
+    original_excepthook: Callable[
         [
-            types.Type[BaseException],
+            Type[BaseException],
             BaseException,
             TracebackType | None,
         ],

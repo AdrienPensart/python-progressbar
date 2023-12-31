@@ -34,8 +34,8 @@ keywords = [
     'visual',
 ]
 license = { text = 'BSD-3-Clause' }
-name = 'progressbar2'
-requires-python = '>=3.8'
+name = 'progressbar3'
+requires-python = '>=3.11'
 
 classifiers = [
     'Development Status :: 5 - Production/Stable',
@@ -96,8 +96,6 @@ classifiers = [
 ]
 description = 'A Python Progressbar library to provide visual (yet text based) progress to long running operations.'
 readme = 'README.rst'
-
-dependencies = ['python-utils >= 3.8.1']
 
 [tool.setuptools.dynamic]
 version = { attr = 'progressbar.__about__.__version__' }
@@ -178,7 +176,7 @@ exclude_lines = [
     'raise NotImplementedError',
     'if 0:',
     'if __name__ == .__main__.:',
-    'if types.TYPE_CHECKING:',
+    'if typing.TYPE_CHECKING:',
     '@typing.overload',
 ]
 

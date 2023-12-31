@@ -2,7 +2,7 @@ import time
 
 import progressbar
 import pytest
-from python_utils import converters
+from progressbar import converters
 
 
 @pytest.mark.parametrize(

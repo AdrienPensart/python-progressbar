@@ -11,10 +11,8 @@ import timeit
 import typing
 from datetime import timedelta
 
-import python_utils
-
-from . import bar, terminal
-from .terminal import stream
+from progressbar import bar, converters, terminal
+from progressbar.terminal import stream
 
 SortKeyFunc = typing.Callable[[bar.ProgressBar], typing.Any]
 
@@ -104,9 +102,8 @@ class MultiBar(typing.Dict[str, bar.ProgressBar]):
 
         self.show_initial = show_initial
         self.show_finished = show_finished
-        self.remove_finished = python_utils.delta_to_seconds_or_none(
-            remove_finished,
-        )
+
+        self.remove_finished = None if remove_finished is None else converters.delta_to_seconds(remove_finished)
 
         self.progressbar_kwargs = progressbar_kwargs
 

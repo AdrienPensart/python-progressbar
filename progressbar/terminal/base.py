@@ -8,12 +8,11 @@ from collections import defaultdict
 
 # Ruff is being stupid and doesn't understand `ClassVar` if it comes from the
 # `types` module
-from typing import ClassVar
-
-from python_utils import converters, types
+from typing import Any, ClassVar
 
 from .. import (
     base as pbase,
+    converters,
     env,
 )
 from .os_specific import getch
@@ -165,9 +164,9 @@ class _CPR(str):  # pragma: no cover
             )
 
             if len(res_list) == 1:
-                return types.cast(types.Tuple[int, int], res_list[0])
+                return res_list[0]
 
-            return types.cast(types.Tuple[int, int], tuple(res_list))
+            return tuple(res_list)
 
     def row(self, stream):
         row, _ = self(stream)
@@ -297,7 +296,7 @@ class Color(
         return SGRColor(self, 58, 59)
 
     @property
-    def ansi(self) -> types.Optional[str]:
+    def ansi(self) -> str | None:
         if (
             env.COLOR_SUPPORT is env.ColorSupport.XTERM_TRUECOLOR
         ):  # pragma: no branch
@@ -336,19 +335,19 @@ class Color(
 
 class Colors:
     by_name: ClassVar[
-        defaultdict[str, types.List[Color]]
+        defaultdict[str, list[Color]]
     ] = collections.defaultdict(list)
     by_lowername: ClassVar[
-        defaultdict[str, types.List[Color]]
+        defaultdict[str, list[Color]]
     ] = collections.defaultdict(list)
     by_hex: ClassVar[
-        defaultdict[str, types.List[Color]]
+        defaultdict[str, list[Color]]
     ] = collections.defaultdict(list)
     by_rgb: ClassVar[
-        defaultdict[RGB, types.List[Color]]
+        defaultdict[RGB, list[Color]]
     ] = collections.defaultdict(list)
     by_hls: ClassVar[
-        defaultdict[HSL, types.List[Color]]
+        defaultdict[HSL, list[Color]]
     ] = collections.defaultdict(list)
     by_xterm: ClassVar[dict[int, Color]] = dict()
 
@@ -356,9 +355,9 @@ class Colors:
     def register(
         cls,
         rgb: RGB,
-        hls: types.Optional[HSL] = None,
-        name: types.Optional[str] = None,
-        xterm: types.Optional[int] = None,
+        hls: HSL | None = None,
+        name: str | None = None,
+        xterm: int | None = None,
     ) -> Color:
         color = Color(rgb, hls, name, xterm)
 
@@ -433,7 +432,7 @@ class ColorGradient(ColorBase):
         return color
 
 
-OptionalColor = types.Union[Color, ColorGradient, None]
+OptionalColor = Color | ColorGradient | None
 
 
 def get_color(value: float, color: OptionalColor) -> Color | None:
@@ -450,7 +449,7 @@ def apply_colors(
     bg: OptionalColor = None,
     fg_none: Color | None = None,
     bg_none: Color | None = None,
-    **kwargs: types.Any,
+    **kwargs: Any,
 ) -> str:
     '''Apply colors/gradients to a string depending on the given percentage.
 

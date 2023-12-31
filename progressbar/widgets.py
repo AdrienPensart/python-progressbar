@@ -6,18 +6,13 @@ import datetime
 import functools
 import logging
 import typing
+from typing import Any, Callable, ClassVar, Type, TypeVar, TypedDict
 
-# Ruff is being stupid and doesn't understand `ClassVar` if it comes from the
-# `types` module
-from typing import ClassVar
+from progressbar import base, converters, terminal, utils
+from progressbar.terminal import colors
 
-from python_utils import containers, converters, types
-
-from . import base, terminal, utils
-from .terminal import colors
-
-if types.TYPE_CHECKING:
-    from .bar import ProgressBarMixinBase
+if typing.TYPE_CHECKING:
+    from progressbar.bar import ProgressBarMixinBase
 
 logger = logging.getLogger(__name__)
 
@@ -25,21 +20,19 @@ MAX_DATE = datetime.date.max
 MAX_TIME = datetime.time.max
 MAX_DATETIME = datetime.datetime.max
 
-Data = types.Dict[str, types.Any]
-FormatString = typing.Optional[str]
+Data = dict[str, Any]
+FormatString = str | None
 
-T = typing.TypeVar('T')
+T = TypeVar('T')
 
 
 def string_or_lambda(input_):
     if isinstance(input_, str):
-
         def render_input(progress, data, width):
             return input_ % data
 
         return render_input
-    else:
-        return input_
+    return input_
 
 
 def create_wrapper(wrapper):
@@ -131,7 +124,7 @@ class FormatWidgetMixin(abc.ABC):
         self,
         progress: ProgressBarMixinBase,
         data: Data,
-        format: types.Optional[str] = None,
+        format: str | None = None,
     ) -> str:
         return format or self.format
 
@@ -139,7 +132,7 @@ class FormatWidgetMixin(abc.ABC):
         self,
         progress: ProgressBarMixinBase,
         data: Data,
-        format: types.Optional[str] = None,
+        format: str | None = None,
     ) -> str:
         '''Formats the widget into a string.'''
         format_ = self.get_format(progress, data, format)
@@ -197,14 +190,14 @@ class WidthWidgetMixin(abc.ABC):
             return True
 
 
-class TGradientColors(typing.TypedDict):
-    fg: types.Optional[terminal.OptionalColor | None]
-    bg: types.Optional[terminal.OptionalColor | None]
+class TGradientColors(TypedDict):
+    fg: terminal.OptionalColor | None
+    bg: terminal.OptionalColor | None
 
 
-class TFixedColors(typing.TypedDict):
-    fg_none: types.Optional[terminal.Color | None]
-    bg_none: types.Optional[terminal.Color | None]
+class TFixedColors(TypedDict):
+    fg_none: terminal.Color | None
+    bg_none: terminal.Color | None
 
 
 class WidgetBase(WidthWidgetMixin, metaclass=abc.ABCMeta):
@@ -256,7 +249,7 @@ class WidgetBase(WidthWidgetMixin, metaclass=abc.ABCMeta):
     # _fixed_colors: ClassVar[dict[str, terminal.Color | None]] = dict()
     # _gradient_colors: ClassVar[dict[str, terminal.OptionalColor | None]] = (
     #     dict())
-    _len: typing.Callable[[str | bytes], int] = len
+    _len: Callable[[converters.StringTypes], int] = len
 
     @functools.cached_property
     def uses_colors(self):
@@ -340,7 +333,7 @@ class FormatLabel(FormatWidgetMixin, WidgetBase):
 
     '''
 
-    mapping: ClassVar[types.Dict[str, types.Tuple[str, types.Any]]] = dict(
+    mapping: ClassVar[dict[str, tuple[str, Any]]] = dict(
         finished=('end_time', None),
         last_update=('last_update_time', None),
         max=('max_value', None),
@@ -358,7 +351,7 @@ class FormatLabel(FormatWidgetMixin, WidgetBase):
         self,
         progress: ProgressBarMixinBase,
         data: Data,
-        format: types.Optional[str] = None,
+        format: str | None = None,
     ):
         for name, (key, transform) in self.mapping.items():
             with contextlib.suppress(KeyError, ValueError, IndexError):
@@ -429,13 +422,13 @@ class SamplesMixin(TimeSensitiveWidgetBase, metaclass=abc.ABCMeta):
     def get_sample_times(self, progress: ProgressBarMixinBase, data: Data):
         return progress.extra.setdefault(
             f'{self.key_prefix}sample_times',
-            containers.SliceableDeque(),
+            utils.SliceableDeque(),
         )
 
     def get_sample_values(self, progress: ProgressBarMixinBase, data: Data):
         return progress.extra.setdefault(
             f'{self.key_prefix}sample_values',
-            containers.SliceableDeque(),
+            utils.SliceableDeque(),
         )
 
     def __call__(
@@ -654,11 +647,11 @@ class DataSize(FormatWidgetMixin, WidgetBase):
         self,
         progress: ProgressBarMixinBase,
         data: Data,
-        format: types.Optional[str] = None,
+        format: str | None = None,
     ):
         value = data[self.variable]
         if value is not None:
-            scaled, power = utils.scale_1024(value, len(self.prefixes))
+            scaled, power = converters.scale_1024(value, len(self.prefixes))
         else:
             scaled = power = 0
 
@@ -690,7 +683,7 @@ class FileTransferSpeed(FormatWidgetMixin, TimeSensitiveWidgetBase):
 
     def _speed(self, value, elapsed):
         speed = float(value) / elapsed
-        return utils.scale_1024(speed, len(self.prefixes))
+        return converters.scale_1024(speed, len(self.prefixes))
 
     def __call__(
         self,
@@ -876,8 +869,8 @@ class SimpleProgress(FormatWidgetMixin, ColoredMixin, WidgetBase):
     '''Returns progress as a count of the total (e.g.: "5 of 47").'''
 
     max_width_cache: dict[
-        types.Union[str, tuple[float, float | types.Type[base.UnknownLength]]],
-        types.Optional[int],
+        str | tuple[float, float | Type[base.UnknownLength]],
+        int | None,
     ]
 
     DEFAULT_FORMAT = '%(value_s)s of %(max_value_s)s'
@@ -914,7 +907,7 @@ class SimpleProgress(FormatWidgetMixin, ColoredMixin, WidgetBase):
 
         # Guess the maximum width from the min and max value
         key = progress.min_value, progress.max_value
-        max_width: types.Optional[int] = self.max_width_cache.get(
+        max_width: int | None = self.max_width_cache.get(
             key,
             self.max_width,
         )
@@ -1076,13 +1069,13 @@ class BouncingBar(Bar, TimeSensitiveWidgetBase):
 
 
 class FormatCustomText(FormatWidgetMixin, WidgetBase):
-    mapping: types.Dict[str, types.Any] = dict()  # noqa: RUF012
+    mapping: dict[str, Any] = dict()  # noqa: RUF012
     copy = False
 
     def __init__(
         self,
         format: str,
-        mapping: types.Optional[types.Dict[str, types.Any]] = None,
+        mapping: dict[str, Any] | None = None,
         **kwargs,
     ):
         self.format = format
@@ -1090,14 +1083,14 @@ class FormatCustomText(FormatWidgetMixin, WidgetBase):
         FormatWidgetMixin.__init__(self, format=format, **kwargs)
         WidgetBase.__init__(self, **kwargs)
 
-    def update_mapping(self, **mapping: types.Dict[str, types.Any]):
+    def update_mapping(self, **mapping: dict[str, Any]):
         self.mapping.update(mapping)
 
     def __call__(
         self,
         progress: ProgressBarMixinBase,
         data: Data,
-        format: types.Optional[str] = None,
+        format: str | None = None,
     ):
         return FormatWidgetMixin.__call__(
             self,
@@ -1380,7 +1373,7 @@ class Variable(FormatWidgetMixin, VariableMixin, WidgetBase):
         self,
         progress: ProgressBarMixinBase,
         data: Data,
-        format: types.Optional[str] = None,
+        format: str | None = None,
     ):
         value = data['variables'][self.name]
         context = data.copy()
@@ -1429,7 +1422,7 @@ class CurrentTime(FormatWidgetMixin, TimeSensitiveWidgetBase):
         self,
         progress: ProgressBarMixinBase,
         data: Data,
-        format: types.Optional[str] = None,
+        format: str | None = None,
     ):
         data['current_time'] = self.current_time()
         data['current_datetime'] = self.current_datetime()

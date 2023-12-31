@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import sys
 import typing
+from typing import Iterable, Iterator, TextIO
 from types import TracebackType
-from typing import Iterable, Iterator
-
-from progressbar import base
 
 
-class TextIOOutputWrapper(base.TextIO):  # pragma: no cover
-    def __init__(self, stream: base.TextIO):
+class TextIOOutputWrapper(TextIO):  # pragma: no cover
+    def __init__(self, stream: TextIO):
         self.stream = stream
 
     def close(self) -> None:
@@ -68,7 +66,7 @@ class TextIOOutputWrapper(base.TextIO):  # pragma: no cover
     ) -> None:
         return self.stream.__exit__(__t, __value, __traceback)
 
-    def __enter__(self) -> base.TextIO:
+    def __enter__(self) -> TextIO:
         return self.stream.__enter__()
 
 

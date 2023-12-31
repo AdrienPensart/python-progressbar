@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 import progressbar
 from progressbar import widgets
-from python_utils.containers import SliceableDeque
+from progressbar.containers import SliceableDeque
 
 
 def test_numeric_samples():
